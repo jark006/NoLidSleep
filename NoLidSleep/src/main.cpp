@@ -7,65 +7,20 @@
 #include <windows.h>
 
 #include <string>
-#include <string_view>
 #include <format>
 #include "resource.h"
+#include "strings.h"
 
 #include <powrprof.h>
 #include <imm.h>
 #include <shellapi.h>
-#include <winnls.h>
 #pragma comment(lib, "PowrProf.lib")
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 #pragma comment(lib, "Imm32.lib")
 #pragma comment(lib, "Shell32.lib")
 
-// ── i18n ──────────────────────────────────────────────────────────────────────
-using sv = std::wstring_view;
-
-struct Strings {
-    sv app_title;
-    sv status_ok;
-    sv action_fmt;      // {0} → action name
-    sv info_line;
-    sv close_fmt;       // {0} → action name
-    sv btn_exit;
-    sv err_msg;
-    sv lid_nothing;
-    sv lid_sleep;
-    sv lid_hibernate;
-    sv lid_shutdown;
-    sv lid_unknown;
-};
-
-constexpr Strings g_zh = {
-    L"合盖不睡眠",
-    L"✅ 已阻止合盖睡眠",
-    L"当前合盖动作: {} (充电状态 + 用电池状态)",
-    L"现在可放心合盖，软件会继续运行。",
-    L"关闭本窗口将恢复为: {}  (空格 / ESC 可退出)",
-    L"恢复并退出",
-    L"无法获取/修改当前电源方案。",
-    L"不操作", L"睡眠", L"休眠", L"关机", L"未知"
-};
-
-constexpr Strings g_en = {
-    L"NoLidSleep",
-    L"✅ Lid sleep blocked",
-    L"Lid close action: {} (Plugged in + On battery)",
-    L"Safe to close the lid — the app keeps running.",
-    L"Closing this window restores: {}  (Space / ESC to quit)",
-    L"Restore and Exit",
-    L"Failed to read or modify the active power scheme.",
-    L"Do nothing", L"Sleep", L"Hibernate", L"Shut down", L"Unknown"
-};
-
-static bool IsChineseLocale() {
-    return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
-}
-
-static const Strings& g_s = IsChineseLocale() ? g_zh : g_en;
+static const Strings& g_s = SelectStrings();
 
 // 电源子组: Power buttons and lid
 static const GUID GUID_SUB_BUTTONS =
@@ -97,6 +52,43 @@ static sv ActionName(DWORD v) {
     case 3: return g_s.lid_shutdown;
     default: return g_s.lid_unknown;
     }
+}
+
+// 预计算窗口客户区高度（基于当前语言文本）
+static int CalcClientHeight() {
+    HFONT font = CreateFontW(
+        -Dp(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        L"Microsoft YaHei UI");
+    HDC dc = GetDC(nullptr);
+    HFONT old = (HFONT)SelectObject(dc, font);
+    const int cw = Dp(440);
+    auto measure = [&](const std::wstring& text) {
+        RECT rc = { 0, 0, cw, 0 };
+        DrawTextW(dc, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK | DT_CENTER);
+        return rc.bottom - rc.top;
+    };
+
+    int y = Dp(18);
+    y += measure(std::wstring{g_s.status_ok}) + Dp(8);
+    auto act1 = ActionName(LID_ON_START);
+    y += measure(std::vformat(g_s.action_fmt, std::make_wformat_args(act1))) + Dp(4);
+    y += measure(std::wstring{g_s.info_line}) + Dp(4);
+    auto act2 = ActionName(LID_ON_EXIT);
+    y += measure(std::vformat(g_s.close_fmt, std::make_wformat_args(act2))) + Dp(10);
+    // button width
+    SIZE sz = {};
+    GetTextExtentPoint32W(dc, g_s.btn_exit.data(), (int)g_s.btn_exit.size(), &sz);
+    int bw = sz.cx + Dp(48);
+    (void)bw; // x-position not needed for height calc
+    y += Dp(32) + Dp(10);   // button height + gap
+    y += Dp(20) + Dp(12);   // link + bottom padding
+
+    SelectObject(dc, old);
+    ReleaseDC(nullptr, dc);
+    DeleteObject(font);
+    return y;
 }
 
 // 运行时兜底:即使 manifest 未生效也尽量声明 DPI 感知
@@ -166,6 +158,37 @@ static void Restore() {
     g_restored = true;
 }
 
+// 测量按钮文本所需宽度（含内边距）
+static int CalcButtonWidth(HWND hwnd) {
+    HDC dc = GetDC(hwnd);
+    HFONT old = (HFONT)SelectObject(dc, g_font);
+    RECT rc = {};
+    DrawTextW(dc, g_s.btn_exit.data(), -1, &rc, DT_CALCRECT | DT_SINGLELINE);
+    SelectObject(dc, old);
+    ReleaseDC(hwnd, dc);
+    return (rc.right - rc.left) + Dp(48);  // 左右各 24dp 内边距
+}
+
+// 测量文本在指定宽度下自动换行后的像素高度
+static int MeasureTextH(HWND hwnd, const std::wstring& text, int width) {
+    HDC dc = GetDC(hwnd);
+    HFONT old = (HFONT)SelectObject(dc, g_font);
+    RECT rc = { 0, 0, width, 0 };
+    DrawTextW(dc, text.c_str(), -1, &rc, DT_CALCRECT | DT_WORDBREAK | DT_CENTER);
+    SelectObject(dc, old);
+    ReleaseDC(hwnd, dc);
+    return rc.bottom - rc.top;
+}
+
+// 创建自动换行的居中静态文本控件，返回其高度
+static int CreateLabel(HWND hwnd, const std::wstring& text, int y, int cw, int id) {
+    int h = MeasureTextH(hwnd, text, cw);
+    CreateWindowW(L"STATIC", text.c_str(),
+        WS_CHILD | WS_VISIBLE | SS_CENTER,
+        Dp(20), y, cw, h, hwnd, (HMENU)id, nullptr, nullptr);
+    return h;
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CREATE: {
@@ -175,29 +198,26 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
             L"Microsoft YaHei UI");
 
-        CreateWindowW(L"STATIC", g_s.status_ok.data(),
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(20), Dp(20), Dp(440), Dp(28), hwnd, (HMENU)101, nullptr, nullptr);
+        const int cw = Dp(440);  // 控件可用宽度
+        int y = Dp(18);
+
+        y += CreateLabel(hwnd, std::wstring{g_s.status_ok}, y, cw, 101) + Dp(8);
 
         auto act1 = ActionName(LID_ON_START);
         auto line1 = std::vformat(g_s.action_fmt, std::make_wformat_args(act1));
-        CreateWindowW(L"STATIC", line1.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(20), Dp(55), Dp(440), Dp(22), hwnd, (HMENU)102, nullptr, nullptr);
+        y += CreateLabel(hwnd, line1, y, cw, 102) + Dp(4);
 
-        CreateWindowW(L"STATIC", g_s.info_line.data(),
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(20), Dp(82), Dp(440), Dp(22), hwnd, (HMENU)103, nullptr, nullptr);
+        y += CreateLabel(hwnd, std::wstring{g_s.info_line}, y, cw, 103) + Dp(4);
 
         auto act2 = ActionName(LID_ON_EXIT);
         auto line2 = std::vformat(g_s.close_fmt, std::make_wformat_args(act2));
-        CreateWindowW(L"STATIC", line2.c_str(),
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(20), Dp(109), Dp(440), Dp(22), hwnd, (HMENU)104, nullptr, nullptr);
+        y += CreateLabel(hwnd, line2, y, cw, 104) + Dp(10);
 
+        int bw = CalcButtonWidth(hwnd);
         CreateWindowW(L"BUTTON", g_s.btn_exit.data(),
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            Dp(140), Dp(145), Dp(200), Dp(32), hwnd, (HMENU)1, nullptr, nullptr);
+            (Dp(480) - bw) / 2, y, bw, Dp(32), hwnd, (HMENU)1, nullptr, nullptr);
+        y += Dp(42);
 
         g_fontLink = CreateFontW(
             -Dp(12), 0, 0, 0, FW_NORMAL, FALSE, TRUE, FALSE,
@@ -206,7 +226,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             L"Microsoft YaHei UI");
         g_hLink = CreateWindowW(L"STATIC", L"https://github.com/jark006/NoLidSleep",
             WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOTIFY,
-            Dp(20), Dp(188), Dp(440), Dp(20), hwnd, (HMENU)105, nullptr, nullptr);
+            Dp(20), y, cw, Dp(20), hwnd, (HMENU)105, nullptr, nullptr);
         SendMessageW(g_hLink, WM_SETFONT, (WPARAM)g_fontLink, TRUE);
 
         EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
@@ -283,7 +303,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
     DWORD style = (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME);
     DWORD exStyle = WS_EX_APPWINDOW;
 
-    RECT rc = { 0, 0, Dp(480), Dp(230) };
+    RECT rc = { 0, 0, Dp(480), CalcClientHeight() };
     BOOL adjusted = FALSE;
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     if (u32) {
