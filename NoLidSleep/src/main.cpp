@@ -1,4 +1,4 @@
-﻿// 临时阻止合盖睡眠 (GUI 版)
+﻿// 合盖不睡眠
 // 启动时：将"合盖时执行"动作一律设为"不操作"（交流+电池），并阻止系统空闲睡眠。
 // 退出时：将"合盖时执行"动作一律设为"睡眠"（交流+电池）。
 
@@ -14,10 +14,12 @@
 
 #include <powrprof.h>
 #include <imm.h>
+#include <shellapi.h>
 #pragma comment(lib, "PowrProf.lib")
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 #pragma comment(lib, "Imm32.lib")
+#pragma comment(lib, "Shell32.lib")
 
 // 电源子组: Power buttons and lid
 static const GUID GUID_SUB_BUTTONS =
@@ -35,6 +37,8 @@ static const DWORD LID_ON_EXIT = 1; // 退出: 睡眠
 static GUID* g_scheme = nullptr;
 static bool  g_restored = false;
 static HFONT g_font = nullptr;
+static HFONT g_fontLink = nullptr;
+static HWND  g_hLink = nullptr;
 static UINT  g_dpi = 96;
 
 static int Dp(int v) { return MulDiv(v, g_dpi, 96); }
@@ -119,8 +123,6 @@ static void Restore() {
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CREATE: {
-        g_dpi = QueryDpiForWindow(hwnd);
-
         g_font = CreateFontW(
             -Dp(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -132,7 +134,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             Dp(10), Dp(20), Dp(360), Dp(28), hwnd, (HMENU)101, nullptr, nullptr);
 
         wchar_t line[128];
-        wsprintfW(line, L"当前合盖动作: %s (交流 + 电池)", ActionName(LID_ON_START));
+        wsprintfW(line, L"当前合盖动作: %s (充电状态 + 用电池状态)", ActionName(LID_ON_START));
         CreateWindowW(L"STATIC", line,
             WS_CHILD | WS_VISIBLE | SS_CENTER,
             Dp(10), Dp(55), Dp(360), Dp(22), hwnd, (HMENU)102, nullptr, nullptr);
@@ -150,6 +152,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             Dp(145), Dp(145), Dp(100), Dp(32), hwnd, (HMENU)1, nullptr, nullptr);
 
+        g_fontLink = CreateFontW(
+            -Dp(12), 0, 0, 0, FW_NORMAL, FALSE, TRUE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            L"Microsoft YaHei UI");
+        g_hLink = CreateWindowW(L"STATIC", L"https://github.com/jark006/NoLidSleep",
+            WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOTIFY,
+            Dp(10), Dp(188), Dp(360), Dp(20), hwnd, (HMENU)105, nullptr, nullptr);
+        SendMessageW(g_hLink, WM_SETFONT, (WPARAM)g_fontLink, TRUE);
+
         EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
             SendMessageW(child, WM_SETFONT, (WPARAM)lParam, TRUE);
             return TRUE;
@@ -159,13 +171,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == 1) {
             DestroyWindow(hwnd);
+        } else if (LOWORD(wp) == 105) {
+            ShellExecuteW(nullptr, L"open",
+                L"https://github.com/jark006/NoLidSleep",
+                nullptr, nullptr, SW_SHOWNORMAL);
         }
         return 0;
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
+    case WM_SETCURSOR:
+        if ((HWND)wp == g_hLink) {
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+            return TRUE;
+        }
+        break;
+    case WM_CTLCOLORSTATIC:
+        if ((HWND)lp == g_hLink) {
+            SetTextColor((HDC)wp, RGB(0, 0, 200));
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
     case WM_DESTROY:
         Restore();
+        if (g_fontLink) { DeleteObject(g_fontLink); g_fontLink = nullptr; }
         if (g_font) { DeleteObject(g_font); g_font = nullptr; }
         PostQuitMessage(0);
         return 0;
@@ -186,21 +216,22 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
 
     if (!ApplyBlock()) {
         MessageBoxW(nullptr, L"无法获取/修改当前电源方案。",
-            L"临时阻止合盖睡眠", MB_OK | MB_ICONERROR);
+            L"合盖不睡眠", MB_OK | MB_ICONERROR);
         return 1;
     }
     SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
-    WNDCLASSW wc = {};
+    g_dpi = QueryDpiForWindow(nullptr);
+
+    WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = kClass;
-    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
-    RegisterClassW(&wc);
-
-    g_dpi = QueryDpiForWindow(nullptr);
+    wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCE(IDI_NOLIDSLEEP));
+    wc.hIconSm = LoadIconW(hInst, MAKEINTRESOURCE(IDI_SMALL));
+    RegisterClassExW(&wc);
 
     DWORD style = (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME);
     DWORD exStyle = WS_EX_APPWINDOW;
@@ -222,7 +253,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
 
     HWND hwnd = CreateWindowExW(
         exStyle,
-        kClass, L"临时阻止合盖睡眠",
+        kClass, L"合盖不睡眠",
         style,
         (sw - W) / 2, (sh - H) / 2, W, H,
         nullptr, nullptr, hInst, nullptr);
