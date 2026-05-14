@@ -3,5 +3,9 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Folder Name="/Project/">
+    <File Path="CLAUDE.md" />
+    <File Path="README.md" />
+  </Folder>
   <Project Path="NoLidSleep/NoLidSleep.vcxproj" Id="240fe493-3959-484c-9399-db6bb3f98dbd" />
 </Solution>

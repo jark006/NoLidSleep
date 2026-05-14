@@ -10,11 +10,12 @@ NoLidSleep 是一个 Windows 桌面工具，用于临时阻止笔记本合盖睡
 
 使用 Visual Studio 2026 (v145 工具集) 打开 `NoLidSleep.slnx` 构建。
 
-- **Release x64**: `msbuild NoLidSleep.slnx /p:Configuration=Release /p:Platform=x64`
-- **Debug x64**: `msbuild NoLidSleep.slnx /p:Configuration=Debug /p:Platform=x64`
+在`PowerShell`环境使用`MSVC生成工具`进行**Release x64**构建
 
-输出路径: `x64\Release\NoLidSleep.exe` 或 `x64\Debug\NoLidSleep.exe`
+`"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" NoLidSleep.slnx /p:Configuration=Release
+            /p:Platform=x64 /v:minimal`
 
+输出路径: `x64\Release\NoLidSleep.exe`
 
 ## 架构
 
@@ -42,7 +43,7 @@ NoLidSleep 是一个 Windows 桌面工具，用于临时阻止笔记本合盖睡
 
 ## 编译选项
 
-- C++ 标准: C++23（x64），C++20（Win32）
+- 语言标准: C++23，C17
 - 字符集: Unicode (`wWinMain`)
 - 额外编译选项: `/utf-8 /Zc:__cplusplus`
 - 链接选项: 嵌入 manifest (`/MANIFEST:EMBED /MANIFESTINPUT:NoLidSleep.manifest`)

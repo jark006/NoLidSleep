@@ -6,20 +6,66 @@
 #define WIN32_LEAN_AND_MEAN             // 从 Windows 头文件中排除极少使用的内容
 #include <windows.h>
 
-#include <stdlib.h>
-#include <malloc.h>
-#include <memory.h>
-#include <tchar.h>
+#include <string>
+#include <string_view>
+#include <format>
 #include "resource.h"
 
 #include <powrprof.h>
 #include <imm.h>
 #include <shellapi.h>
+#include <winnls.h>
 #pragma comment(lib, "PowrProf.lib")
 #pragma comment(lib, "User32.lib")
 #pragma comment(lib, "Gdi32.lib")
 #pragma comment(lib, "Imm32.lib")
 #pragma comment(lib, "Shell32.lib")
+
+// ── i18n ──────────────────────────────────────────────────────────────────────
+using sv = std::wstring_view;
+
+struct Strings {
+    sv app_title;
+    sv status_ok;
+    sv action_fmt;      // {0} → action name
+    sv info_line;
+    sv close_fmt;       // {0} → action name
+    sv btn_exit;
+    sv err_msg;
+    sv lid_nothing;
+    sv lid_sleep;
+    sv lid_hibernate;
+    sv lid_shutdown;
+    sv lid_unknown;
+};
+
+constexpr Strings g_zh = {
+    L"合盖不睡眠",
+    L"✅ 已阻止合盖睡眠",
+    L"当前合盖动作: {} (充电状态 + 用电池状态)",
+    L"现在可放心合盖，软件会继续运行。",
+    L"关闭本窗口将恢复为: {}  (空格 / ESC 可退出)",
+    L"恢复并退出",
+    L"无法获取/修改当前电源方案。",
+    L"不操作", L"睡眠", L"休眠", L"关机", L"未知"
+};
+
+constexpr Strings g_en = {
+    L"NoLidSleep",
+    L"✅ Lid sleep blocked",
+    L"Lid close action: {} (Plugged in + On battery)",
+    L"Safe to close the lid — the app keeps running.",
+    L"Closing this window restores: {}  (Space / ESC to quit)",
+    L"Restore and Exit",
+    L"Failed to read or modify the active power scheme.",
+    L"Do nothing", L"Sleep", L"Hibernate", L"Shut down", L"Unknown"
+};
+
+static bool IsChineseLocale() {
+    return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
+}
+
+static const Strings& g_s = IsChineseLocale() ? g_zh : g_en;
 
 // 电源子组: Power buttons and lid
 static const GUID GUID_SUB_BUTTONS =
@@ -43,13 +89,13 @@ static UINT  g_dpi = 96;
 
 static int Dp(int v) { return MulDiv(v, g_dpi, 96); }
 
-static const wchar_t* ActionName(DWORD v) {
+static sv ActionName(DWORD v) {
     switch (v) {
-    case 0: return L"不操作";
-    case 1: return L"睡眠";
-    case 2: return L"休眠";
-    case 3: return L"关机";
-    default: return L"未知";
+    case 0: return g_s.lid_nothing;
+    case 1: return g_s.lid_sleep;
+    case 2: return g_s.lid_hibernate;
+    case 3: return g_s.lid_shutdown;
+    default: return g_s.lid_unknown;
     }
 }
 
@@ -129,28 +175,29 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
             L"Microsoft YaHei UI");
 
-        CreateWindowW(L"STATIC", L"✅ 已阻止合盖睡眠",
+        CreateWindowW(L"STATIC", g_s.status_ok.data(),
             WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(10), Dp(20), Dp(360), Dp(28), hwnd, (HMENU)101, nullptr, nullptr);
+            Dp(20), Dp(20), Dp(440), Dp(28), hwnd, (HMENU)101, nullptr, nullptr);
 
-        wchar_t line[128];
-        wsprintfW(line, L"当前合盖动作: %s (充电状态 + 用电池状态)", ActionName(LID_ON_START));
-        CreateWindowW(L"STATIC", line,
+        auto act1 = ActionName(LID_ON_START);
+        auto line1 = std::vformat(g_s.action_fmt, std::make_wformat_args(act1));
+        CreateWindowW(L"STATIC", line1.c_str(),
             WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(10), Dp(55), Dp(360), Dp(22), hwnd, (HMENU)102, nullptr, nullptr);
+            Dp(20), Dp(55), Dp(440), Dp(22), hwnd, (HMENU)102, nullptr, nullptr);
 
-        CreateWindowW(L"STATIC", L"现在可放心合盖，软件会继续运行。",
+        CreateWindowW(L"STATIC", g_s.info_line.data(),
             WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(10), Dp(82), Dp(360), Dp(22), hwnd, (HMENU)103, nullptr, nullptr);
+            Dp(20), Dp(82), Dp(440), Dp(22), hwnd, (HMENU)103, nullptr, nullptr);
 
-        wsprintfW(line, L"关闭本窗口将恢复为: %s  (空格 / ESC 可退出)", ActionName(LID_ON_EXIT));
-        CreateWindowW(L"STATIC", line,
+        auto act2 = ActionName(LID_ON_EXIT);
+        auto line2 = std::vformat(g_s.close_fmt, std::make_wformat_args(act2));
+        CreateWindowW(L"STATIC", line2.c_str(),
             WS_CHILD | WS_VISIBLE | SS_CENTER,
-            Dp(10), Dp(109), Dp(360), Dp(22), hwnd, (HMENU)104, nullptr, nullptr);
+            Dp(20), Dp(109), Dp(440), Dp(22), hwnd, (HMENU)104, nullptr, nullptr);
 
-        CreateWindowW(L"BUTTON", L"恢复并退出",
+        CreateWindowW(L"BUTTON", g_s.btn_exit.data(),
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            Dp(145), Dp(145), Dp(100), Dp(32), hwnd, (HMENU)1, nullptr, nullptr);
+            Dp(140), Dp(145), Dp(200), Dp(32), hwnd, (HMENU)1, nullptr, nullptr);
 
         g_fontLink = CreateFontW(
             -Dp(12), 0, 0, 0, FW_NORMAL, FALSE, TRUE, FALSE,
@@ -159,7 +206,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             L"Microsoft YaHei UI");
         g_hLink = CreateWindowW(L"STATIC", L"https://github.com/jark006/NoLidSleep",
             WS_CHILD | WS_VISIBLE | SS_CENTER | SS_NOTIFY,
-            Dp(10), Dp(188), Dp(360), Dp(20), hwnd, (HMENU)105, nullptr, nullptr);
+            Dp(20), Dp(188), Dp(440), Dp(20), hwnd, (HMENU)105, nullptr, nullptr);
         SendMessageW(g_hLink, WM_SETFONT, (WPARAM)g_fontLink, TRUE);
 
         EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
@@ -215,8 +262,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
     const wchar_t* kClass = L"TempNoLidSleepWnd";
 
     if (!ApplyBlock()) {
-        MessageBoxW(nullptr, L"无法获取/修改当前电源方案。",
-            L"合盖不睡眠", MB_OK | MB_ICONERROR);
+        MessageBoxW(nullptr, g_s.err_msg.data(),
+            g_s.app_title.data(), MB_OK | MB_ICONERROR);
         return 1;
     }
     SetConsoleCtrlHandler(CtrlHandler, TRUE);
@@ -236,7 +283,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
     DWORD style = (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME);
     DWORD exStyle = WS_EX_APPWINDOW;
 
-    RECT rc = { 0, 0, Dp(400), Dp(230) };
+    RECT rc = { 0, 0, Dp(480), Dp(230) };
     BOOL adjusted = FALSE;
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     if (u32) {
@@ -253,7 +300,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ 
 
     HWND hwnd = CreateWindowExW(
         exStyle,
-        kClass, L"合盖不睡眠",
+        kClass, g_s.app_title.data(),
         style,
         (sw - W) / 2, (sh - H) / 2, W, H,
         nullptr, nullptr, hInst, nullptr);
