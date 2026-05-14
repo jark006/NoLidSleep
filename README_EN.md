@@ -45,6 +45,12 @@
 
 简体中文, 繁體中文, English, 日本語, 한국어, Deutsch, Français, Español, Português, Русский, Italiano, Nederlands, Polski, Türkçe, ภาษาไทย, Tiếng Việt, Svenska, Čeština, Magyar, Dansk
 
+## 📢 Friends Links: LINUX DO
+
+[LINUX DO](https://linux.do)
+
+Everyone there is super talented and speaks so nicely—I absolutely love this place.
+
 ## 📜 License
 
 [MIT License](LICENSE)

@@ -45,6 +45,12 @@
 
 简体中文, 繁體中文, English, 日本語, 한국어, Deutsch, Français, Español, Português, Русский, Italiano, Nederlands, Polski, Türkçe, ภาษาไทย, Tiếng Việt, Svenska, Čeština, Magyar, Dansk
 
+## 📢 友情链接 LINUX DO
+
+[LINUX DO](https://linux.do)
+
+里面个个都是人才，说话又好听，我超喜欢这里的
+
 ## 📜 许可证
 
 [MIT License](LICENSE)
