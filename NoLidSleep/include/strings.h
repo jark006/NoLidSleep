@@ -28,5 +28,15 @@ extern const Strings g_fr;
 extern const Strings g_es;
 extern const Strings g_pt;
 extern const Strings g_ru;
+extern const Strings g_it;
+extern const Strings g_nl;
+extern const Strings g_pl;
+extern const Strings g_tr;
+extern const Strings g_th;
+extern const Strings g_vi;
+extern const Strings g_sv;
+extern const Strings g_cs;
+extern const Strings g_hu;
+extern const Strings g_da;
 
 const Strings& SelectStrings();
