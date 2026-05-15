@@ -4,7 +4,7 @@
 
 # NoLidSleep
 
-### 🛏️ 合盖不睡眠
+### 🛏️ 盖盖不睡眠
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D4.svg)]()
